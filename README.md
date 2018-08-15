@@ -6,6 +6,8 @@ Command to run on terminal:
 
 spark-submit [CF python file] [input file] [testing file]
 
+The command will generate an output file (txt) in the current directory
+
 - Implementation of User-User, Item-Item and Model Collaborative Filtering methods on the MovieLens Database.
 - Locality Sensitive Hashing was used to speed up computation of Item-Item pairs
 - Item-Item performs best with lowest RMSE of 0.94
