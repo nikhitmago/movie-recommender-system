@@ -9,50 +9,8 @@ from pyspark import SparkContext
 
 sc = SparkContext(appName="ItemBasedCF")
 
-start = time.time()
-
-input_file = sys.argv[1]
-testing_file = sys.argv[2]
-
-output_file = 'Nikhit_Mago_ItemBasedCF.txt'
-
-### LSH
-
-hashLen = 60
-numBands = 20
-data = sc.textFile(input_file)
-header = data.first()
-users = data.filter(lambda x: x!=header).map(lambda x: x.split(',')).map(lambda x: (int(x[0])-1,int(x[1]))).groupByKey().map(lambda x: (x[0],list(set(x[1])))).sortByKey().collect()
-users_len = len(users)
-
-movies = data.filter(lambda x: x!=header).map(lambda x: x.split(',')).map(lambda x: (int(x[1]),1)).groupByKey().sortByKey().map(lambda x: x[0]).collect()
-movies_len = len(movies)
-
-char_matrix = {}
-for movie in movies:
-    char_matrix[movie] = [1 if movie in user[1] else 0 for user in users]
-
 def hashFunc(x,a,b,m,i):
     return map(lambda x: (a*x+b)%m ,x)
-
-hash_fns = []
-for i in range(hashLen): 
-    hash_fns.append(hashFunc(range(users_len),random.randint(0,671),random.randint(0,671),users_len,i))
-hash_fns = np.array(hash_fns)
-hash_fns = hash_fns.T
-
-matrix = np.array([char_matrix[movie] for movie in movies]).T
-
-signatures = {movie:np.array([sys.maxint for i in range(len(hash_fns.T))]) for movie in movies}
-
-for i in range(users_len):
-    movies_1 = np.array(movies)[np.argwhere(matrix[i] == 1).flatten()]
-    for movie in movies_1:
-        signatures[movie] = list(np.minimum(signatures[movie],hash_fns[i]))
-
-signatures_arr = np.array([signatures[movie] for movie in movies]).T.tolist()
-
-signatures_arr = sc.parallelize(signatures_arr,numBands)
 
 def getCandidates(rows,movies):
     l = []
@@ -83,8 +41,116 @@ def getJaccardSimilarity(candidates):
                     N += 1
         score = float(N)/D
         l.append((candidate,score))
-    return(l)   
+    return(l)
 
+def getJaccardSim(movie1,movie2):
+    N = 0
+    D = 0
+    for i in range(len(movie1)):
+        sum_ = movie1[i] + movie2[i]
+        if(sum_ >= 1):
+            flag = 1
+            D += 1
+            if(sum_ == 2):
+                N += 1
+    if D == 0:
+        return 0
+    return(float(N)/D)
+
+def CF(test):
+    prediction = []
+    for row in test:
+        JS = {}
+        userId = row[0][0]
+        itemId = row[0][1]
+        actual = row[1]
+        
+        if itemId not in train_items:
+            prediction.append(((userId,itemId),(actual,np.nanmean(char_matrix_u[userId]))))
+            continue  
+        movies = users2[userId]
+    
+        for movie in movies:
+            if tuple(sorted((movie,itemId))) in jaccardSim:
+                JS[movie] = jaccardSim[tuple(sorted((movie,itemId)))]
+            else:
+                JS[movie] = getJaccardSim(char_matrix[itemId],char_matrix[movie])
+
+        
+        r_dash = np.nanmean(char_matrix_u[userId])
+        
+        if len(JS) == 0:
+            prediction.append(((userId,itemId),(actual,r_dash)))
+            continue
+        
+        N = len(JS)
+        nn = sorted(JS.items(), key = lambda x: x[1])[:N]
+        
+        R = 0
+        W = 0
+        for movie,jaccard in nn:
+            R += train_kv[(userId,movie)]*jaccard
+            W += np.abs(jaccard)
+        
+        pred = float(R)/W
+        prediction.append(((userId,itemId),(actual,pred)))
+    
+    return(prediction)
+
+def get_abs_errors(error):
+    if error >=0 and error <1:
+        return(('01',1))
+    elif error >=1 and error <2:
+        return(('12',1))
+    elif error >=2 and error <3:
+        return(('23',1))
+    elif error >=3 and error <4:
+        return(('34',1))
+    else:
+        return(('4',1))
+
+start = time.time()
+
+input_file = sys.argv[1]
+testing_file = sys.argv[2]
+
+output_file = 'Nikhit_Mago_ItemBasedCF.txt'
+
+### LSH
+
+hashLen = 60
+numBands = 20
+data = sc.textFile(input_file)
+header = data.first()
+users = data.filter(lambda x: x!=header).map(lambda x: x.split(',')).map(lambda x: (int(x[0])-1,int(x[1]))).groupByKey().map(lambda x: (x[0],list(set(x[1])))).sortByKey().collect()
+users_len = len(users)
+
+movies = data.filter(lambda x: x!=header).map(lambda x: x.split(',')).map(lambda x: (int(x[1]),1)).groupByKey().sortByKey().map(lambda x: x[0]).collect()
+movies_len = len(movies)
+
+char_matrix = {}
+for movie in movies:
+    char_matrix[movie] = [1 if movie in user[1] else 0 for user in users]
+
+hash_fns = []
+for i in range(hashLen): 
+    hash_fns.append(hashFunc(range(users_len),random.randint(0,671),random.randint(0,671),users_len,i))
+hash_fns = np.array(hash_fns)
+hash_fns = hash_fns.T
+
+matrix = np.array([char_matrix[movie] for movie in movies]).T
+
+signatures = {movie:np.array([sys.maxint for i in range(len(hash_fns.T))]) for movie in movies}
+
+for i in range(users_len):
+    movies_1 = np.array(movies)[np.argwhere(matrix[i] == 1).flatten()]
+    for movie in movies_1:
+        signatures[movie] = list(np.minimum(signatures[movie],hash_fns[i]))
+
+signatures_arr = np.array([signatures[movie] for movie in movies]).T.tolist()
+
+signatures_arr = sc.parallelize(signatures_arr,numBands)
+   
 result = signatures_arr.mapPartitions(lambda x: getCandidates(x,movies)).map(lambda x: (x,1)).groupByKey().map(lambda x: x[0]).mapPartitions(getJaccardSimilarity).filter(lambda (x,y): y >= 0.5).collect()
 
 jaccardSim = {k[0]:k[1] for k in result}
@@ -146,77 +212,11 @@ for user in users:
         else:
             char_matrix_u[user].append(np.NaN)
 
-def getJaccardSim(movie1,movie2):
-    N = 0
-    D = 0
-    for i in range(len(movie1)):
-        sum_ = movie1[i] + movie2[i]
-        if(sum_ >= 1):
-            flag = 1
-            D += 1
-            if(sum_ == 2):
-                N += 1
-    if D == 0:
-        return 0
-    return(float(N)/D)
-
-def CF(test):
-    prediction = []
-    for row in test:
-        JS = {}
-        userId = row[0][0]
-        itemId = row[0][1]
-        actual = row[1]
-        
-        if itemId not in train_items:
-            prediction.append(((userId,itemId),(actual,np.nanmean(char_matrix_u[userId]))))
-            continue  
-        movies = users2[userId]
-    
-        for movie in movies:
-            if tuple(sorted((movie,itemId))) in jaccardSim:
-                JS[movie] = jaccardSim[tuple(sorted((movie,itemId)))]
-            else:
-                JS[movie] = getJaccardSim(char_matrix[itemId],char_matrix[movie])
-
-        
-        r_dash = np.nanmean(char_matrix_u[userId])
-        
-        if len(JS) == 0:
-            prediction.append(((userId,itemId),(actual,r_dash)))
-            continue
-        
-        N = len(JS)
-        nn = sorted(JS.items(), key = lambda x: x[1])[:N]
-        
-        R = 0
-        W = 0
-        for movie,jaccard in nn:
-            R += train_kv[(userId,movie)]*jaccard
-            W += np.abs(jaccard)
-        
-        pred = float(R)/W
-        prediction.append(((userId,itemId),(actual,pred)))
-    
-    return(prediction)
-
 b = test.repartition(200).mapPartitions(CF).collect()
 
 eval_matrix = sc.parallelize(b,4)
 
 rmse = np.sqrt(eval_matrix.map(lambda x: (x[1][0] - x[1][1])**2).mean())
-
-def get_abs_errors(error):
-    if error >=0 and error <1:
-        return(('01',1))
-    elif error >=1 and error <2:
-        return(('12',1))
-    elif error >=2 and error <3:
-        return(('23',1))
-    elif error >=3 and error <4:
-        return(('34',1))
-    else:
-        return(('4',1))
 
 abs_errors = eval_matrix.map(lambda x: np.abs(x[1][0] - x[1][1])).map(get_abs_errors)
 
