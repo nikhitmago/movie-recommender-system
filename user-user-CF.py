@@ -5,136 +5,6 @@ from pyspark import SparkContext
 
 sc = SparkContext(appName="UserBasedCF")
 
-# In[ ]:
-
-
-start = time.time()
-
-
-# In[2]:
-
-
-input_file = sys.argv[1]
-testing_file = sys.argv[2] 
-
-
-# In[3]:
-
-
-output_file = 'Nikhit_Mago_UserBasedCF.txt'
-
-
-# In[4]:
-
-
-data = sc.textFile(input_file)
-header = data.first()
-data = data.filter(lambda x: x!=header).map(lambda x: x.split(',')).map(lambda x: ((int(x[0]), int(x[1])), float(x[2])))
-data.persist()
-
-
-# In[6]:
-
-
-data_test = sc.textFile(testing_file)
-header = data_test.first()
-data_test = data_test.filter(lambda x: x!=header).map(lambda x: x.split(',')).map(lambda x: ((int(x[0]), int(x[1])), float(-1.0)))
-data_test.persist()
-
-# In[8]:
-
-
-train = data.subtractByKey(data_test)
-
-
-# In[9]:
-
-
-test = data.subtractByKey(train)
-
-
-# In[11]:
-
-
-data.unpersist()
-data_test.unpersist()
-
-
-# In[12]:
-
-
-train.persist()
-test.persist()
-
-
-# In[13]:
-
-
-users = train.map(lambda x: (x[0][0],1)).groupByKey().sortByKey().map(lambda x: x[0]).collect()
-users_len = len(users)
-
-
-# In[14]:
-
-
-movies = train.map(lambda ((x,y),z): (y,(x,z))).groupByKey().map(lambda x: (x[0],list(set(x[1])))).sortByKey().collect()
-movies_len = len(movies)
-
-
-# In[15]:
-
-
-char_matrix = {k:[] for k in users}
-for user in users:
-    for movie in movies:
-        flag = 0
-        for m in movie[1]:
-            if user == m[0]:
-                flag = 1
-                break
-        if flag == 1:
-            char_matrix[user].append(m[1])
-        else:
-            char_matrix[user].append(np.NaN)
-
-
-# In[17]:
-
-
-movies1 = train.map(lambda x: (int(x[0][1]),int(x[0][0]))).groupByKey().map(lambda x: (x[0],list(set(x[1])))).sortByKey().collect()
-
-
-# In[18]:
-
-
-movies2 = {}
-for movie in movies1:
-    movies2[movie[0]] = movie[1]
-
-
-# In[19]:
-
-
-train = train.collect()
-
-
-# In[20]:
-
-
-train_items = np.unique([t[0][1] for t in train])
-
-
-# In[21]:
-
-
-train_kv = {}
-for i in train:
-    train_kv[i[0]] = i[1]
-
-
-# In[22]:
-
-
 def getPearsonCC(X,Y):
     mask = np.array(X) + np.array(Y)
     mask = mask / mask
@@ -145,10 +15,6 @@ def getPearsonCC(X,Y):
     if D == 0:
         return 0
     return(N/D)
-
-
-# In[23]:
-
 
 def CF(test):
     prediction = []
@@ -190,28 +56,6 @@ def CF(test):
     
     return(prediction)
 
-
-# In[26]:
-
-
-b = test.repartition(200).mapPartitions(CF).collect()
-
-
-# In[27]:
-
-
-eval_matrix = sc.parallelize(b,4)
-
-
-# In[28]:
-
-
-rmse = np.sqrt(eval_matrix.map(lambda x: (x[1][0] - x[1][1])**2).mean())
-
-
-# In[34]:
-
-
 def get_abs_errors(error):
     if error >=0 and error <1:
         return(('01',1))
@@ -223,38 +67,84 @@ def get_abs_errors(error):
         return(('34',1))
     else:
         return(('4',1))
+    
+start = time.time()
 
+input_file = sys.argv[1]
+testing_file = sys.argv[2] 
 
-# In[35]:
+output_file = 'Nikhit_Mago_UserBasedCF.txt'
 
+data = sc.textFile(input_file)
+header = data.first()
+data = data.filter(lambda x: x!=header).map(lambda x: x.split(',')).map(lambda x: ((int(x[0]), int(x[1])), float(x[2])))
+data.persist()
+
+data_test = sc.textFile(testing_file)
+header = data_test.first()
+data_test = data_test.filter(lambda x: x!=header).map(lambda x: x.split(',')).map(lambda x: ((int(x[0]), int(x[1])), float(-1.0)))
+data_test.persist()
+
+train = data.subtractByKey(data_test)
+
+test = data.subtractByKey(train)
+
+data.unpersist()
+data_test.unpersist()
+
+train.persist()
+test.persist()
+
+users = train.map(lambda x: (x[0][0],1)).groupByKey().sortByKey().map(lambda x: x[0]).collect()
+users_len = len(users)
+
+movies = train.map(lambda ((x,y),z): (y,(x,z))).groupByKey().map(lambda x: (x[0],list(set(x[1])))).sortByKey().collect()
+movies_len = len(movies)
+
+char_matrix = {k:[] for k in users}
+for user in users:
+    for movie in movies:
+        flag = 0
+        for m in movie[1]:
+            if user == m[0]:
+                flag = 1
+                break
+        if flag == 1:
+            char_matrix[user].append(m[1])
+        else:
+            char_matrix[user].append(np.NaN)
+
+movies1 = train.map(lambda x: (int(x[0][1]),int(x[0][0]))).groupByKey().map(lambda x: (x[0],list(set(x[1])))).sortByKey().collect()
+
+movies2 = {}
+for movie in movies1:
+    movies2[movie[0]] = movie[1]
+
+train = train.collect()
+
+train_items = np.unique([t[0][1] for t in train])
+
+train_kv = {}
+for i in train:
+    train_kv[i[0]] = i[1]
+
+b = test.repartition(200).mapPartitions(CF).collect()
+
+eval_matrix = sc.parallelize(b,4)
+
+rmse = np.sqrt(eval_matrix.map(lambda x: (x[1][0] - x[1][1])**2).mean())
 
 abs_errors = eval_matrix.map(lambda x: np.abs(x[1][0] - x[1][1])).map(get_abs_errors)
 
-
-# In[37]:
-
-
 levels = abs_errors.reduceByKey(lambda x,y: x+y).sortByKey().collect()
 
-
-# In[45]:
-
-
 preds = eval_matrix.sortByKey().map(lambda x: str((x[0][0],x[0][1],x[1][1]))[1:-1]).collect()
-
-
-# In[47]:
-
 
 with open(output_file,'wb') as file_write:
     for pred in preds:
         file_write.write(pred)
         file_write.write('\n')
 file_write.close()     
-
-
-# In[42]:
-
 
 for level in levels:
     if len(level[0])>1:
@@ -266,4 +156,3 @@ time_taken = str(int(time.time() - start)) + " sec"
 
 print('RMSE: {}'.format(rmse))
 print('Time: {}'.format(time_taken))
-
