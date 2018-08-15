@@ -2,7 +2,9 @@
 
 Version: Spark – 2.2.1, Python – 2.7
 
-Command to run on terminal: spark-submit <CF python file> <input file> <testing file>
+Command to run on terminal: 
+
+spark-submit <CF python file> <input file> <testing file>
 
 - Implementation of User-User, Item-Item and Model Collaborative Filtering methods on the MovieLens Database.
 - Locality Sensitive Hashing was used to speed up computation of Item-Item pairs
