@@ -7,7 +7,7 @@ Version: Spark – 2.2.1, Python – 2.7
 Command to run on terminal:
 
 ```html
-spark-submit <CF python file> <input file> <testing file>
+spark-submit [CF python file] [input file] [testing file]
 ```
 
 The above command will generate an `output file` in the current directory 
